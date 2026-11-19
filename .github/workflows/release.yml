@@ -40,7 +40,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - id: verify
-        uses: home-mandate/.github/actions/release-verify@775deb921a2851dd0f88899ec33ecdea07b6ac24
+        uses: home-mandate/.github/actions/release-verify@ad365d582b6dc47ad14828c81c1a31a4fbd6683a
         with:
           tag: ${{ inputs.tag || github.ref_name }}
           required-checks: |
