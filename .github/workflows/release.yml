@@ -1,0 +1,101 @@
+name: Release
+
+# A tag publishes a release: draft, report, publish, and for a release candidate the gate.
+# Run by hand with a tag name, it only checks whether that tag could be released from the
+# head of the chosen branch, and publishes nothing.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Dry run: the tag to check on the head of this branch"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Check the tag
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+      checks: read
+      actions: read
+    outputs:
+      version: ${{ steps.verify.outputs.version }}
+      kind: ${{ steps.verify.outputs.kind }}
+      prerelease: ${{ steps.verify.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: verify
+        uses: home-mandate/.github/actions/release-verify@775deb921a2851dd0f88899ec33ecdea07b6ac24
+        with:
+          tag: ${{ inputs.tag || github.ref_name }}
+          required-checks: |
+            Check (
+            Fuzz (
+      - name: The version and the changelog in the repository
+        env:
+          BASE: ${{ steps.verify.outputs.base }}
+        run: |
+          set -euo pipefail
+          [ "$(cat VERSION)" = "$BASE" ] || { echo "::error::VERSION is $(cat VERSION), the tag $BASE"; exit 1; }
+          grep -qxF "## $BASE" CHANGELOG.md || { echo "::error::CHANGELOG.md has no entry for $BASE"; exit 1; }
+
+  release:
+    name: Create the draft
+    needs: verify
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          PRERELEASE: ${{ needs.verify.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          flags=()
+          if [ "$PRERELEASE" = true ]; then flags+=(--prerelease); fi
+          echo "report of $TAG" > report.txt
+          gh release create "$TAG" report.txt --repo "$GITHUB_REPOSITORY" --verify-tag --draft --title "$TAG" --notes "A trial." "${flags[@]}"
+
+  publish:
+    name: Publish the release
+    needs: release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false
+
+  # Only a release candidate runs the gate; the version goes on a commit whose gate passed.
+  gate:
+    name: Release gate
+    needs: [verify, publish]
+    if: needs.verify.outputs.kind == 'rc'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: ./gate.sh
