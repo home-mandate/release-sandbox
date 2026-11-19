@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1
+
+A fix whose gate fails.
+
 ## 0.2.0
 
 The second version of nothing.
