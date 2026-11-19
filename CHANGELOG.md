@@ -2,7 +2,7 @@
 
 ## 0.2.1
 
-A fix whose gate fails.
+A fix, and its gate passes now.
 
 ## 0.2.0
 
